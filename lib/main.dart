@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const String kNameKey = 'user_name';
 
 void main() => runApp(const ArabicGrammarApp());
 
@@ -43,13 +46,17 @@ class AppLogo extends StatelessWidget {
         ],
       ),
       alignment: Alignment.center,
-      child: Text(
-        'ع',
-        style: TextStyle(
-          fontSize: size * 0.62,
-          color: kGreen,
-          fontWeight: FontWeight.bold,
-          height: 1.1,
+      padding: EdgeInsets.all(size * 0.16),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          'القرآن',
+          style: TextStyle(
+            fontSize: size * 0.34,
+            color: kGreen,
+            fontWeight: FontWeight.bold,
+            height: 1.3,
+          ),
         ),
       ),
     );
@@ -77,12 +84,20 @@ class _SplashScreenState extends State<SplashScreen>
         AnimationController(vsync: this, duration: const Duration(seconds: 1))
           ..forward();
     _fade = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
-    _timer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-      );
-    });
+    _timer = Timer(const Duration(seconds: 3), _next);
+  }
+
+  Future<void> _next() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString(kNameKey);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => (name != null && name.isNotEmpty)
+            ? HomeScreen(name: name)
+            : const OnboardingScreen(),
+      ),
+    );
   }
 
   @override
@@ -221,7 +236,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Skip button (hidden on last page, space kept)
             SizedBox(
               height: 52,
               child: Align(
@@ -243,7 +257,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 itemBuilder: (_, i) => _OnboardPage(data: kPages[i]),
               ),
             ),
-            // Dots
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(kPages.length, (i) {
@@ -359,8 +372,43 @@ class _OnboardPage extends StatelessWidget {
 }
 
 // ----------------------------------------------------------------- Login
-class LoginScreen extends StatelessWidget {
+/// Only a name is asked. It is saved on the phone so it can be used later
+/// for scoring / progress.
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _nameController = TextEditingController();
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _continue() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Please enter your name / اپنا نام لکھیں');
+      return;
+    }
+    setState(() {
+      _error = null;
+      _saving = true;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kNameKey, name);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => HomeScreen(name: name)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -371,29 +419,26 @@ class LoginScreen extends StatelessWidget {
             padding: const EdgeInsets.all(28),
             child: Column(
               children: [
-                const AppLogo(size: 100),
-                const SizedBox(height: 16),
-                const Text('Login',
+                const AppLogo(size: 150),
+                const SizedBox(height: 20),
+                const Text('Welcome',
                     style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
                         color: kDarkGreen)),
+                const SizedBox(height: 6),
+                Text('اپنا نام لکھیں',
+                    style: TextStyle(fontSize: 18, color: Colors.grey.shade700)),
                 const SizedBox(height: 24),
                 TextField(
-                  keyboardType: TextInputType.emailAddress,
+                  controller: _nameController,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _continue(),
                   decoration: InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    prefixIcon: const Icon(Icons.lock_outline),
+                    labelText: 'Name / نام',
+                    errorText: _error,
+                    prefixIcon: const Icon(Icons.person_outline),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
@@ -409,19 +454,10 @@ class LoginScreen extends StatelessWidget {
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14)),
                     ),
-                    onPressed: () => Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(builder: (_) => const HomeScreen()),
-                    ),
-                    child: const Text('Login',
+                    onPressed: _saving ? null : _continue,
+                    child: const Text('Continue',
                         style: TextStyle(fontSize: 18)),
                   ),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  ),
-                  child: const Text('Continue as Guest',
-                      style: TextStyle(color: kGreen)),
                 ),
               ],
             ),
@@ -434,7 +470,8 @@ class LoginScreen extends StatelessWidget {
 
 // ------------------------------------------------------------------ Home
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  final String name;
+  const HomeScreen({super.key, required this.name});
 
   @override
   Widget build(BuildContext context) {
@@ -444,14 +481,17 @@ class HomeScreen extends StatelessWidget {
         foregroundColor: Colors.white,
         title: const Text('Arabic Grammar'),
       ),
-      body: const Center(
+      body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AppLogo(size: 110),
-            SizedBox(height: 16),
-            Text('السلام علیکم! Home Screen',
-                style: TextStyle(fontSize: 20, color: kDarkGreen)),
+            const AppLogo(size: 130),
+            const SizedBox(height: 16),
+            Text('السلام علیکم، $name',
+                style: const TextStyle(fontSize: 22, color: kDarkGreen)),
+            const SizedBox(height: 6),
+            Text('Home Screen',
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
           ],
         ),
       ),
